@@ -1,47 +1,67 @@
 #include "rclcpp/rclcpp.hpp"
-#include "custom_interface/srv/add_two_ints.hpp" //interface
-
+#include "custom_interface/srv/add_two_ints.hpp"
 #include <chrono>
-#include <cstdlib>
 #include <memory>
+#include <cstdlib>
 
 using namespace std::chrono_literals;
+
+class ServicoClient : public rclcpp::Node
+{
+public:
+  // O construtor agora recebe os valores passados pelo terminal
+  ServicoClient(long int a, long int b) : Node("exemplo_servico_client"), a_(a), b_(b)
+  {
+    client_ = this->create_client<custom_interface::srv::AddTwoInts>("exemplo_servico");
+    
+    // Dispara o timer para tentar enviar o pedido em 500ms
+    timer_ = this->create_wall_timer(500ms, std::bind(&ServicoClient::send_request, this));
+  }
+
+private:
+  void send_request()
+  {
+    timer_->cancel(); // Para o timer para enviar o pedido apenas uma vez
+
+    if (!client_->wait_for_service(1s)) {
+      RCLCPP_INFO(this->get_logger(), "Servidor indisponível, aguardando...");
+      timer_->reset(); // Liga o timer de novo para tentar na próxima iteração
+      return;
+    }
+
+    auto request = std::make_shared<custom_interface::srv::AddTwoInts::Request>();
+    request->a = a_;
+    request->b = b_;
+
+    // Função lambda simples para rodar quando a resposta chegar
+    auto response_callback = [this](rclcpp::Client<custom_interface::srv::AddTwoInts>::SharedFuture future) {
+      RCLCPP_INFO(this->get_logger(), "Soma recebida do servidor: %ld", future.get()->sum);
+      rclcpp::shutdown(); // Encerra o programa automaticamente após receber a resposta
+    };
+
+    client_->async_send_request(request, response_callback);
+  }
+
+  long int a_, b_;
+  rclcpp::Client<custom_interface::srv::AddTwoInts>::SharedPtr client_;
+  rclcpp::TimerBase::SharedPtr timer_;
+};
 
 int main(int argc, char **argv)
 {
   rclcpp::init(argc, argv);
 
-  if (argc != 3) { //validacao de ter 3 dados, nome do programa, a e b
-      RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "usage: exemplo_servico_client X Y");
-      return 1;
+  if (argc != 3) {
+    RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "Uso correto: programa X Y");
+    return 1;
   }
 
-  std::shared_ptr<rclcpp::Node> node = rclcpp::Node::make_shared("exemplo_servico_client");//instancia um nó
-  rclcpp::Client<custom_interface::srv::AddTwoInts>::SharedPtr client =
-    node->create_client<custom_interface::srv::AddTwoInts>("exemplo_servico");//cria um  cliente para o servico exemplo_servico
+  long int a = atoll(argv[1]);
+  long int b = atoll(argv[2]);
 
-  auto request = std::make_shared<custom_interface::srv::AddTwoInts::Request>(); //Montagem do request
-  request->a = atoll(argv[1]); //transforma string para long(int64), é passado pelo terminal
-  request->b = atoll(argv[2]);//transforma string para long(int64), é passado pelo terminal
-
-  while (!client->wait_for_service(1s)) { // Espera o servico ficar disponivel
-    if (!rclcpp::ok()) { // verifica se o ros2 esta rodando
-      RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "Interrupted while waiting for the service. Exiting.");
-      return 0;
-    }
-    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "service not available, waiting again...");
-  }
-
-  auto result = client->async_send_request(request); //envia o pedido e espera a resposta de forma assincrona, não trava aqui
-  // Wait for the result.
-  if (rclcpp::spin_until_future_complete(node, result) ==
-    rclcpp::FutureReturnCode::SUCCESS)// fica aguardando o retorno ficar completo -> rclcpp::spin_until_future_complete()
-  {
-    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Sum: %ld", result.get()->sum);//se deu certo exibe no console
-  } else {
-    RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "Failed to call service exemplo_servico");//se deu errado aparece o erro no console
-  }
-
-  rclcpp::shutdown();
+  // Cria a classe passando 'a' e 'b' e trava no spin escutando o ROS 2
+  rclcpp::spin(std::make_shared<ServicoClient>(a, b));
+  
+  // O rclcpp::shutdown() dentro do response_callback fará o código chegar aqui
   return 0;
 }

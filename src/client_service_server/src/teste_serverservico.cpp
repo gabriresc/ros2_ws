@@ -1,44 +1,38 @@
 #include "rclcpp/rclcpp.hpp"
-#include "custom_interface/srv/add_two_ints.hpp" //interface
-
+#include "custom_interface/srv/add_two_ints.hpp"
 #include <memory>
 
-void add(const std::shared_ptr<custom_interface::srv::AddTwoInts::Request> request,
-          std::shared_ptr<custom_interface::srv::AddTwoInts::Response>      response)
-    /*
-        void add -> uma funcao que escreve o resuldado dentro de response
-        const std::shared_ptr<...> request -> o pedido do cliente
-            ·<...> vem da interface que estamos utilizando, tudo que vem antes das ---, no caso a e b
-            ·std::shared_ptr -> é o ponteiro inteligente(gerencia a memoria)
-            ·const quer dizer que não modificar o valor do resquest
-        std::shared_ptr<...> response -> mensagem de resposta ao cliente
-            · o que vem depois das ---, no caso o num
-    */
+using namespace std::placeholders; // Permite o uso de _1 e _2 no bind
+
+class ServicoServer : public rclcpp::Node
 {
-  response->sum = request->a + request->b; // a logica de servico, soma a e b
-  RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Incoming request\na: %ld" " b: %ld",
-                request->a, request->b); // exibir no terminal o que esta recebendo 
-  RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "sending back response: [%ld]", (long int)response->sum); // exibir o valor de resposta
-}
+public:
+  ServicoServer() : Node("exemplo_servico_server")
+  {
+    // Cria o servidor e aponta o callback para o método add_callback da classe
+    service_ = this->create_service<custom_interface::srv::AddTwoInts>(
+      "exemplo_servico",
+      std::bind(&ServicoServer::add_callback, this, _1, _2));
+      
+    RCLCPP_INFO(this->get_logger(), "Servidor OOP pronto para somar.");
+  }
+
+private:
+  void add_callback(const std::shared_ptr<custom_interface::srv::AddTwoInts::Request> request,
+                    std::shared_ptr<custom_interface::srv::AddTwoInts::Response> response)
+  {
+    response->sum = request->a + request->b;
+    RCLCPP_INFO(this->get_logger(), "Recebido pedido: a: %ld, b: %ld", request->a, request->b);
+    RCLCPP_INFO(this->get_logger(), "Enviando resposta: [%ld]", response->sum);
+  }
+
+  rclcpp::Service<custom_interface::srv::AddTwoInts>::SharedPtr service_;
+};
 
 int main(int argc, char **argv)
 {
-  rclcpp::init(argc, argv);//inicia o ros2
-
-  std::shared_ptr<rclcpp::Node> node = rclcpp::Node::make_shared("exemplo_servico_server");//instancia um node
-
-  rclcpp::Service<custom_interface::srv::AddTwoInts>::SharedPtr service =
-    node->create_service<custom_interface::srv::AddTwoInts>("exemplo_servico", &add);//cria um server para o servico exemplo_servico
-    /*
-        node->create_service<...>(...) — método do nó que registra um serviço
-        <custom_interface::srv::AddTwoInts> — o tipo do serviço (template)
-        "exemplo_servico" — o nome do serviço
-        &add — ponteiro para a função add
-    */
-
-  RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Ready to add two ints.");//log informativo
-
-  rclcpp::spin(node);
+  rclcpp::init(argc, argv);
+  rclcpp::spin(std::make_shared<ServicoServer>()); // Instancia e trava aqui
   rclcpp::shutdown();
   return 0;
 }
