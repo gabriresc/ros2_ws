@@ -49,7 +49,7 @@ private:
         try {
             // Atenção à ordem: DESTINO, ORIGEM, TEMPO.
             const auto transformacao = buffer_->lookupTransform(
-                "base_link",
+                "odom",
                 ponto_lidar.header.frame_id,
                 tf2::TimePointZero);
 
